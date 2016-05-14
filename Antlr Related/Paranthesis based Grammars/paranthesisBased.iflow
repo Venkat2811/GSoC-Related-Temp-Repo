@@ -14,28 +14,7 @@ StocksPipeline::log("Before filter statement")
 
 LoadBalancer(algorithm(name(ROUND_ROBIN)),persistence(type(LB_COOKIE),sessionTimeout(5m)),ssl(type(NO_SSL)),healthCheck(type(PASSIVE),unHealthyRetries(5times),healthyRetries(1time),healthyCheckInterval(5m))
 
-Algorithm
-	name : ROUND_ROBIN
-	updateInterval : 60s
-endAlgorithm
 
-Persistence
-	type : LB_COOKIE
-	sessionTimeout : 5m
-endPersistence
-
-SSL
-	type : NO_SSL
-endSSL
-
-HealthCheck
-	type : PASSIVE
-	unHealthyRetries : 5times
-	healthyRetries : 1time
-	healthyCheckInterval : 5m
-endHealthCheck
-
-endLoadbalancer
 
 StocksPipeline::log("After filter statement")
 
