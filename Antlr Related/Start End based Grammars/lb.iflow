@@ -16,7 +16,6 @@ Loadbalancer
 
 Algorithm
 	name : ROUND_ROBIN
-	updateInterval : 60s
 endAlgorithm
 
 Persistence
