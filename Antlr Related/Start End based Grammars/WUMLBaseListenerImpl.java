@@ -483,7 +483,7 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     public void exitAlgorithmStatement(WUMLParser.AlgorithmStatementContext ctx) {
 
         log.info(ctx.ALGORITHMTYPEX().getText());
-        log.info(ctx.TIMESTRINGX().getText());
+        log.info(ctx.LBTIMESTRINGX().getText());
         super.exitAlgorithmStatement(ctx);
     }
 
@@ -496,7 +496,7 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     public void exitPersistenceStatement(WUMLParser.PersistenceStatementContext ctx) {
 
         log.info(ctx.PERSISTENCETYPEX().getText());
-        log.info(ctx.TIMESTRINGX().getText());
+        log.info(ctx.LBTIMESTRINGX().getText());
         super.exitPersistenceStatement(ctx);
     }
 
@@ -522,9 +522,12 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     @Override
     public void exitHealthCheckStatement(WUMLParser.HealthCheckStatementContext ctx) {
 
-        log.info(ctx.RETRIESCOUNTX().get(0).getText());
-        log.info(ctx.RETRIESCOUNTX().get(1).getText());
-        log.info(ctx.TIMESTRINGX().getText());
+        log.info(ctx.HEALTHCHECKTYPEX().getText());
+        log.info(ctx.HEALTHCHECKRETRIESCOUNTX().get(0).getText());
+        log.info(ctx.HEALTHCHECKRETRIESCOUNTX().get(1).getText());
+        log.info(ctx.LBTIMESTRINGX().getText());
         super.exitHealthCheckStatement(ctx);
     }
+
+
 }

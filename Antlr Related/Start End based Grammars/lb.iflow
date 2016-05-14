@@ -29,8 +29,9 @@ SSL
 endSSL
 
 HealthCheck
-	unHealthyRetries : 5
-	healthyRetries : 10
+	type : PASSIVE
+	unHealthyRetries : 5times
+	healthyRetries : 1time
 	healthyCheckInterval : 5m
 endHealthCheck
 
