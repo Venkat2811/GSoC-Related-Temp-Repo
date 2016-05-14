@@ -12,7 +12,7 @@ StocksInbound -> StocksPipeline : "client request"
 
 StocksPipeline::log("Before filter statement")
 
-Loadbalancer
+LoadBalancer(algorithm(name(ROUND_ROBIN)),persistence(type(LB_COOKIE),sessionTimeout(5m)),ssl(type(NO_SSL)),healthCheck(type(PASSIVE),unHealthyRetries(5times),healthyRetries(1time),healthyCheckInterval(5m))
 
 Algorithm
 	name : ROUND_ROBIN
