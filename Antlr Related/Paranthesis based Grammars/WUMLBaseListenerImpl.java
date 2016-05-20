@@ -37,11 +37,10 @@ import org.wso2.carbon.gateway.core.inbound.InboundEPProviderRegistry;
 import org.wso2.carbon.gateway.core.inbound.InboundEndpoint;
 import org.wso2.carbon.gateway.core.outbound.OutboundEPProviderRegistry;
 import org.wso2.carbon.gateway.core.outbound.OutboundEndpoint;
+import org.wso2.carbon.gateway.httploadbalancer.config.LoadBalancerConfigHolder;
+import org.wso2.carbon.gateway.httploadbalancer.constants.LoadBalancerConstants;
 
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Stack;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**
@@ -60,6 +59,7 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     boolean ifMultiThenBlockStarted = false;
     boolean ifElseBlockStarted = false;
     Map<String, String> identifierTypeMap = new HashMap<>();
+    LoadBalancerConfigHolder lbConfig;
 
     boolean insideGroup = false;
     private String groupPath;
@@ -465,6 +465,7 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
 
     @Override
     public void enterLoadBalancerConfig(WUMLParser.LoadBalancerConfigContext ctx) {
+        lbConfig = new LoadBalancerConfigHolder();
         super.enterLoadBalancerConfig(ctx);
     }
 
@@ -483,12 +484,13 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     @Override
     public void exitAlgorithmStatement(WUMLParser.AlgorithmStatementContext ctx) {
 
-        log.info(ctx.ALGORITHMNAMEDEF().getText().replaceAll("\\s+",""));
+        String algorithmDef = ctx.ALGORITHMNAMEDEF().getText().replaceAll("\\s+", "");
+        lbConfig.addToConfig(new Parameter(LoadBalancerConstants.ALGORITHM_NAME, algorithmDef.substring(algorithmDef.indexOf("(") + 1, algorithmDef.indexOf(")"))));
 
-
+        //TODO: For Round-Robin there won't be other Algorithm related params. So it can be added to lbconfig later.
         for (TerminalNode terminalNode : ctx.OTHERALGORITHMPARAMS()) {
 
-            log.info(terminalNode.getText().replaceAll("\\s+",""));
+            log.info(terminalNode.getText().replaceAll("\\s+", ""));
         }
         super.exitAlgorithmStatement(ctx);
     }
@@ -503,10 +505,17 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     @Override
     public void exitPersistenceStatement(WUMLParser.PersistenceStatementContext ctx) {
 
-        log.info(ctx.PERSISTENCETYPEDEF().getText().replaceAll("\\s+",""));
+
+        String persistenceDef = ctx.PERSISTENCETYPEDEF().getText().replaceAll("\\s+", "");
+        lbConfig.addToConfig(new Parameter(LoadBalancerConstants.PERSISTENCE_TYPE,
+                persistenceDef.substring(persistenceDef.indexOf("(") + 1, persistenceDef.indexOf(")"))));
+
         for (TerminalNode terminalNode : ctx.OTHERPERSISTENCEPARAMS()) {
 
-            log.info(terminalNode.getText().replaceAll("\\s+",""));
+            String configElement = terminalNode.getText().replaceAll("\\s+", "");
+
+            lbConfig.addToConfig(new Parameter(LoadBalancerConstants.PERSISTENCE_SESSION_TIME_OUT,
+                    configElement.substring(configElement.indexOf("(") + 1, configElement.indexOf(")"))));
         }
 
         super.exitPersistenceStatement(ctx);
@@ -522,7 +531,9 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     @Override
     public void exitSSLStatement(WUMLParser.SSLStatementContext ctx) {
 
-        log.info(ctx.SSLTYPEDEF().getText().replaceAll("\\s+",""));
+        String sslDef = ctx.SSLTYPEDEF().getText().replaceAll("\\s+", "");
+        lbConfig.addToConfig(new Parameter(LoadBalancerConstants.SSL_TYPE,
+                sslDef.substring(sslDef.indexOf("(") + 1, sslDef.indexOf(")"))));
 
         super.exitSSLStatement(ctx);
     }
@@ -536,11 +547,39 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     @Override
     public void exitHealthCheckStatement(WUMLParser.HealthCheckStatementContext ctx) {
 
-        log.info(ctx.HEALTHCHECKTYPEDEF().getText().replaceAll("\\s+",""));
-        for (TerminalNode terminalNode : ctx.OTHERHEALTHCHECKPARAMS()) {
+        String healthCheckDef = ctx.HEALTHCHECKTYPEDEF().getText().replaceAll("\\s+", "");
+        lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_TYPE,
+                healthCheckDef.substring(healthCheckDef.indexOf("(") + 1, healthCheckDef.indexOf(")"))));
 
-            log.info(terminalNode.getText().replaceAll("\\s+",""));
+        HashMap<String, String> map = new HashMap<>();
+        for (TerminalNode terminalNode : ctx.OTHERHEALTHCHECKPARAMS()) {
+            String configElement = terminalNode.getText().replaceAll("\\s+", "");
+            map.put(configElement.substring(configElement.indexOf(",") + 1, configElement.indexOf("(")),
+                    configElement.substring(configElement.indexOf("(") + 1, configElement.indexOf(")")));
         }
+
+        for (String key : map.keySet()) {
+
+            if (key.equalsIgnoreCase(LoadBalancerConstants.HEALTH_CHECK_REQUEST_TIMEOUT)) {
+
+                lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_REQUEST_TIMEOUT, map.get(key)));
+
+            } else if (key.equalsIgnoreCase(LoadBalancerConstants.HEALTH_CHECK_UNHEALTHY_RETRIES)) {
+
+                lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_UNHEALTHY_RETRIES, map.get(key)));
+
+            } else if (key.equalsIgnoreCase(LoadBalancerConstants.HEALTH_CHECK_HEALTHY_RETRIES)) {
+
+                lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_HEALTHY_RETRIES, map.get(key)));
+
+            } else if (key.equalsIgnoreCase(LoadBalancerConstants.HEALTH_CHECK_HEALTHY_CHECK_INTERVAL)) {
+
+                lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_HEALTHY_CHECK_INTERVAL, map.get(key)));
+            }
+
+        }
+
+
         super.exitHealthCheckStatement(ctx);
     }
 
