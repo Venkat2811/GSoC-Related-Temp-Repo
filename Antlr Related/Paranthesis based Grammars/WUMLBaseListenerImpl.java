@@ -18,8 +18,6 @@
 package org.wso2.carbon.gateway.core.config.dsl.external.wuml;
 
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.wso2.carbon.gateway.core.config.Parameter;
 import org.wso2.carbon.gateway.core.config.ParameterHolder;
 import org.wso2.carbon.gateway.core.config.dsl.external.StringParserUtil;
@@ -37,18 +35,20 @@ import org.wso2.carbon.gateway.core.inbound.InboundEPProviderRegistry;
 import org.wso2.carbon.gateway.core.inbound.InboundEndpoint;
 import org.wso2.carbon.gateway.core.outbound.OutboundEPProviderRegistry;
 import org.wso2.carbon.gateway.core.outbound.OutboundEndpoint;
+import org.wso2.carbon.gateway.core.util.VariableUtil;
 import org.wso2.carbon.gateway.httploadbalancer.config.LoadBalancerConfigHolder;
 import org.wso2.carbon.gateway.httploadbalancer.constants.LoadBalancerConstants;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Stack;
 import java.util.regex.Pattern;
 
 /**
  * Implementation class of the ANTLR generated listener class
  */
 public class WUMLBaseListenerImpl extends WUMLBaseListener {
-
-    private static final Logger log = LoggerFactory.getLogger(WUMLBaseListenerImpl.class);
 
     public static final String INBOUND = "INBOUND";
     public static final String OUTBOUND = "OUTBOUND";
@@ -82,14 +82,10 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     }
 
     @Override
-    public void exitVariableStatement(WUMLParser.VariableStatementContext ctx) {
+    public void exitVariableDeclarationStatement(WUMLParser.VariableDeclarationStatementContext ctx) {
         String varType = ctx.TYPEDEFINITIONX().getText();
         String varIdentifier = ctx.IDENTIFIER().getText();
-        String varValue = ctx.COMMENTSTRINGX().getText();
-
-        if (varType.toLowerCase(Locale.ROOT).equals("string")) {
-            varValue = StringParserUtil.getValueWithinDoubleQuotes(varValue);
-        }
+        String varValue = StringParserUtil.getValueWithinDoubleQuotes(ctx.COMMENTSTRINGX().getText());
 
         Mediator mediator = MediatorProviderRegistry.getInstance().getMediator("property");
 
@@ -97,15 +93,59 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
         parameterHolder.addParameter(new Parameter("key", varIdentifier));
         parameterHolder.addParameter(new Parameter("value", varValue));
         parameterHolder.addParameter(new Parameter("type", varType));
+        parameterHolder.addParameter(new Parameter("assignment", "false"));
         mediator.setParameters(parameterHolder);
 
         if (pipelineStack.size() == 0) {
-            integrationFlow.getGWConfigHolder().addGlobalVariable(varType, varIdentifier, varValue);
+            // ignore, we only accept constants at highest level of mediation flow and these should not be updateable.
+            //integrationFlow.getGWConfigHolder().addGlobalConstant(varType, varIdentifier, varValue);
         } else {
             dropMediatorFilterAware(mediator);
         }
 
-        super.exitVariableStatement(ctx);
+        super.exitVariableDeclarationStatement(ctx);
+    }
+
+    @Override
+    public void exitVariableAssignmentStatement(WUMLParser.VariableAssignmentStatementContext ctx) {
+        String varIdentifier = ctx.VAR_IDENTIFIER().getText().replace("=", "").trim().substring(1);
+        String varValue = StringParserUtil.getValueWithinDoubleQuotes(ctx.COMMENTSTRINGX().getText());
+        Mediator mediator = MediatorProviderRegistry.getInstance().getMediator("property");
+        ParameterHolder parameterHolder = new ParameterHolder();
+        parameterHolder.addParameter(new Parameter("key", varIdentifier));
+        parameterHolder.addParameter(new Parameter("value", varValue));
+        parameterHolder.addParameter(new Parameter("type", null));
+        parameterHolder.addParameter(new Parameter("assignment", "true"));
+        mediator.setParameters(parameterHolder);
+
+        if (pipelineStack.size() == 0) {
+            // Only constant declarations allowed at the highest level.
+            //integrationFlow.getGWConfigHolder().updateGlobalConstant(varIdentifier, varValue);
+        } else {
+            dropMediatorFilterAware(mediator);
+        }
+        super.exitVariableAssignmentStatement(ctx);
+    }
+
+    @Override
+    public void exitConstStatement(WUMLParser.ConstStatementContext ctx) {
+        String constType = ctx.TYPEDEFINITIONX().getText();
+
+        String constIdentifier = ctx.IDENTIFIER().getText();
+
+        String constValue = null;
+        if (!constIdentifier.toLowerCase(Locale.ROOT).equals("string")) {
+            constValue = ctx.COMMENTSTRINGX().getText();
+        } else {
+            constValue = StringParserUtil.getValueWithinDoubleQuotes(ctx.COMMENTSTRINGX().getText());
+        }
+
+        if (pipelineStack.size() == 0) {
+            integrationFlow.getGWConfigHolder()
+                    .addGlobalConstant(VariableUtil.getType(constType), constIdentifier, constValue);
+        } // constants only allowed at the highest level
+
+        super.exitConstStatement(ctx);
     }
 
     @Override
@@ -145,16 +185,16 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     @Override
     public void exitInboundEndpointDefStatement(WUMLParser.InboundEndpointDefStatementContext ctx) {
         identifierTypeMap.put(ctx.IDENTIFIER().getText(), INBOUND);
-        String protocolName = getValue(StringParserUtil.getValueWithinDoubleQuotes(ctx.inboundEndpointDef().
-                PROTOCOLDEF().getText())).toString();
+        String protocolName = getValue(StringParserUtil.
+                getValueWithinDoubleQuotes(ctx.inboundEndpointDef().PROTOCOLDEF().getText())).toString();
 
         ParameterHolder parameterHolder = new ParameterHolder();
 
         for (TerminalNode terminalNode : ctx.inboundEndpointDef().PARAMX()) {
             String keyValue = terminalNode.getSymbol().getText();
             String key = keyValue.substring(1, keyValue.indexOf("("));
-            String value =
-                    getValue(keyValue.substring(keyValue.indexOf("\"") + 1, keyValue.lastIndexOf("\""))).toString();
+            String value = getValue(keyValue.substring(keyValue.indexOf("\"") + 1, keyValue.lastIndexOf("\"")))
+                    .toString();
 
             parameterHolder.addParameter(new Parameter(key, value));
         }
@@ -187,8 +227,8 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
         for (TerminalNode terminalNode : ctx.outboundEndpointDef().PARAMX()) {
             String keyValue = terminalNode.getSymbol().getText();
             String key = keyValue.substring(1, keyValue.indexOf("("));
-            String value =
-                    getValue(keyValue.substring(keyValue.indexOf("\"") + 1, keyValue.lastIndexOf("\""))).toString();
+            String value = getValue(keyValue.substring(keyValue.indexOf("\"") + 1, keyValue.lastIndexOf("\"")))
+                    .toString();
 
             parameterHolder.addParameter(new Parameter(key, value));
         }
@@ -232,15 +272,65 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
         String mediatorDefinition = ctx.MEDIATORDEFINITIONX().getText();
         String mediatorName = mediatorDefinition.split(DOUBLECOLON)[1];
 
-        String configurations = StringParserUtil.getValueWithinDoubleQuotes(ctx.ARGUMENTLISTDEF().getText());
-        Mediator mediator = MediatorProviderRegistry.getInstance().getMediator(mediatorName);
+        if (mediatorName.equals("log")) {
+            WUMLParser.LogMediatorStatementDefContext logCtx = ctx.logMediatorStatementDef();
+            Mediator mediator = MediatorProviderRegistry.getInstance().getMediator(mediatorName);
+            ParameterHolder parameterHolder = new ParameterHolder();
+            String level = StringParserUtil.getValueWithinDoubleQuotes(logCtx.LEVELDEF().getSymbol().getText());
+            parameterHolder.addParameter(new Parameter("level", level));
+            for (TerminalNode terminalNode : logCtx.PARAMX()) {
+                String keyValue = terminalNode.getSymbol().getText();
+                String key = keyValue.substring(1, keyValue.indexOf("("));
+                String value = keyValue.substring(keyValue.indexOf("\"") + 1, keyValue.lastIndexOf("\""));
+                parameterHolder.addParameter(new Parameter(key, value));
+            }
+            for (WUMLParser.LogPropertyStatementDefContext logPropertyStatementDefContext : logCtx
+                    .logPropertyStatementDef()) {
+                String key = StringParserUtil
+                        .getValueWithinDoubleQuotes(logPropertyStatementDefContext.KEYDEF().getSymbol().getText());
 
-        ParameterHolder parameterHolder = new ParameterHolder();
-        parameterHolder.addParameter(new Parameter("parameters", configurations));
-        mediator.setParameters(parameterHolder);
+                if (logPropertyStatementDefContext.VALUEDEF() != null) {
+                    String value = StringParserUtil.getValueWithinDoubleQuotes(
+                            logPropertyStatementDefContext.VALUEDEF().getSymbol().getText());
+                    parameterHolder.addParameter(new Parameter(key, value));
+                } else if (logPropertyStatementDefContext.XPATHDEF() != null) {
+                    String expression = StringParserUtil.getValueWithinDoubleQuotes(
+                            logPropertyStatementDefContext.XPATHDEF().getSymbol().getText());
+                    expression = "xpath=" + expression;
+                    parameterHolder.addParameter(new Parameter(key, expression));
+                    if (logPropertyStatementDefContext.nameSpaceStatementDef() != null) {
+                        for (WUMLParser.NameSpaceStatementDefContext nameSpaceStatementDefContext :
+                                logPropertyStatementDefContext.nameSpaceStatementDef()) {
+                            String preFix = StringParserUtil.getValueWithinDoubleQuotes(
+                                    nameSpaceStatementDefContext.PREFIXDEF().getSymbol().getText());
+                            String uri = StringParserUtil.getValueWithinDoubleQuotes(
+                                    nameSpaceStatementDefContext.URIDEF().getSymbol().getText());
+                            String modifiedPrefix = "namespace=" + preFix;
+                            parameterHolder.addParameter(new Parameter(modifiedPrefix, uri));
+                        }
+                    }
+                } else if (logPropertyStatementDefContext.JSONPATHDEF() != null) {
+                    String expression = StringParserUtil.getValueWithinDoubleQuotes(logPropertyStatementDefContext.
+                            JSONPATHDEF().getSymbol().getText());
+                    expression = "jsonPath=" + expression;
+                    parameterHolder.addParameter(new Parameter(key, expression));
+                }
 
-        // mediator.setParameters(configurations);
-        dropMediatorFilterAware(mediator);
+            }
+            mediator.setParameters(parameterHolder);
+            dropMediatorFilterAware(mediator);
+        } else {
+
+            String configurations = StringParserUtil.getValueWithinDoubleQuotes(ctx.ARGUMENTLISTDEF().getText());
+            Mediator mediator = MediatorProviderRegistry.getInstance().getMediator(mediatorName);
+
+            ParameterHolder parameterHolder = new ParameterHolder();
+            parameterHolder.addParameter(new Parameter("parameters", configurations));
+            mediator.setParameters(parameterHolder);
+
+            // mediator.setParameters(configurations);
+            dropMediatorFilterAware(mediator);
+        }
         super.exitMediatorStatementDef(ctx);
     }
 
@@ -338,6 +428,16 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     public void exitRefStatement(WUMLParser.RefStatementContext ctx) {
         pipelineStack.push(ctx.IDENTIFIER().getText());
         super.exitRefStatement(ctx);
+    }
+
+    @Override
+    public void exitLogMediatorStatementDef(WUMLParser.LogMediatorStatementDefContext ctx) {
+        super.exitLogMediatorStatementDef(ctx);
+    }
+
+    @Override
+    public void exitLogPropertyStatementDef(WUMLParser.LogPropertyStatementDefContext ctx) {
+        super.exitLogPropertyStatementDef(ctx);
     }
 
     @Override
@@ -448,30 +548,31 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     }
 
     /**
-     * If variable detected, return value from global variable if it exists, in all other cases return key back.
+     * If variable detected, return value from global constants if it exists, in all other cases return key back.
      *
      * @param key
      * @return Variable value or key
      */
     private Object getValue(String key) {
         if (key.startsWith("$")) {
-            if (integrationFlow.getGWConfigHolder().getGlobalVariable(key.substring(1)) != null) {
-                return integrationFlow.getGWConfigHolder().getGlobalVariable(key.substring(1));
+            if (integrationFlow.getGWConfigHolder().getGlobalConstant(key.substring(1)) != null) {
+                Object constVar = integrationFlow.getGWConfigHolder().getGlobalConstant(key.substring(1));
+                if (constVar instanceof String) {
+                    return StringParserUtil.getValueWithinDoubleQuotes((String) constVar);
+                } else {
+                    return constVar;
+                }
             }
         }
 
         return key;
     }
 
+
     @Override
     public void enterLoadBalancerConfig(WUMLParser.LoadBalancerConfigContext ctx) {
         lbConfig = new LoadBalancerConfigHolder();
         super.enterLoadBalancerConfig(ctx);
-    }
-
-    @Override
-    public void exitLoadBalancerConfig(WUMLParser.LoadBalancerConfigContext ctx) {
-        super.exitLoadBalancerConfig(ctx);
     }
 
 
@@ -485,13 +586,14 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
     public void exitAlgorithmStatement(WUMLParser.AlgorithmStatementContext ctx) {
 
         String algorithmDef = ctx.ALGORITHMNAMEDEF().getText().replaceAll("\\s+", "");
-        lbConfig.addToConfig(new Parameter(LoadBalancerConstants.ALGORITHM_NAME, algorithmDef.substring(algorithmDef.indexOf("(") + 1, algorithmDef.indexOf(")"))));
+        lbConfig.addToConfig(new Parameter(LoadBalancerConstants.ALGORITHM_NAME, StringParserUtil.getValueWithinBrackets(algorithmDef)));
+
 
         //TODO: For Round-Robin there won't be other Algorithm related params. So it can be added to lbconfig later.
-        for (TerminalNode terminalNode : ctx.OTHERALGORITHMPARAMS()) {
+        //  for (TerminalNode terminalNode : ctx.OTHERALGORITHMPARAMS()) {
 
-            log.info(terminalNode.getText().replaceAll("\\s+", ""));
-        }
+        //  log.info(terminalNode.getText().replaceAll("\\s+", ""));
+
         super.exitAlgorithmStatement(ctx);
     }
 
@@ -508,14 +610,14 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
 
         String persistenceDef = ctx.PERSISTENCETYPEDEF().getText().replaceAll("\\s+", "");
         lbConfig.addToConfig(new Parameter(LoadBalancerConstants.PERSISTENCE_TYPE,
-                persistenceDef.substring(persistenceDef.indexOf("(") + 1, persistenceDef.indexOf(")"))));
+                StringParserUtil.getValueWithinBrackets(persistenceDef)));
 
         for (TerminalNode terminalNode : ctx.OTHERPERSISTENCEPARAMS()) {
 
             String configElement = terminalNode.getText().replaceAll("\\s+", "");
 
             lbConfig.addToConfig(new Parameter(LoadBalancerConstants.PERSISTENCE_SESSION_TIME_OUT,
-                    configElement.substring(configElement.indexOf("(") + 1, configElement.indexOf(")"))));
+                    StringParserUtil.getValueWithinBrackets(configElement)));
         }
 
         super.exitPersistenceStatement(ctx);
@@ -533,7 +635,7 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
 
         String sslDef = ctx.SSLTYPEDEF().getText().replaceAll("\\s+", "");
         lbConfig.addToConfig(new Parameter(LoadBalancerConstants.SSL_TYPE,
-                sslDef.substring(sslDef.indexOf("(") + 1, sslDef.indexOf(")"))));
+                StringParserUtil.getValueWithinBrackets(sslDef)));
 
         super.exitSSLStatement(ctx);
     }
@@ -549,13 +651,13 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
 
         String healthCheckDef = ctx.HEALTHCHECKTYPEDEF().getText().replaceAll("\\s+", "");
         lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_TYPE,
-                healthCheckDef.substring(healthCheckDef.indexOf("(") + 1, healthCheckDef.indexOf(")"))));
+                StringParserUtil.getValueWithinBrackets(healthCheckDef)));
 
         HashMap<String, String> map = new HashMap<>();
         for (TerminalNode terminalNode : ctx.OTHERHEALTHCHECKPARAMS()) {
             String configElement = terminalNode.getText().replaceAll("\\s+", "");
             map.put(configElement.substring(configElement.indexOf(",") + 1, configElement.indexOf("(")),
-                    configElement.substring(configElement.indexOf("(") + 1, configElement.indexOf(")")));
+                    StringParserUtil.getValueWithinBrackets(configElement));
         }
 
         for (String key : map.keySet()) {
@@ -575,6 +677,7 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
             } else if (key.equalsIgnoreCase(LoadBalancerConstants.HEALTH_CHECK_HEALTHY_CHECK_INTERVAL)) {
 
                 lbConfig.addToConfig(new Parameter(LoadBalancerConstants.HEALTH_CHECK_HEALTHY_CHECK_INTERVAL, map.get(key)));
+
             }
 
         }
@@ -583,5 +686,10 @@ public class WUMLBaseListenerImpl extends WUMLBaseListener {
         super.exitHealthCheckStatement(ctx);
     }
 
+    @Override
+    public void exitLoadBalancerConfig(WUMLParser.LoadBalancerConfigContext ctx) {
 
+        lbConfig.configureLoadBalancerMediator(integrationFlow);
+        super.exitLoadBalancerConfig(ctx);
+    }
 }
