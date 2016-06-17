@@ -42,15 +42,12 @@ statementList
 statement
     : titleStatement
     | participantStatement
+    | constStatement
     | groupStatement
     | messageflowStatementList
     | variableStatement
     | commentStatement
-    | loadBalancerConfig
-    ;
-
-
-
+    | loadBalancerConfig;
 
 // Definition of the high level name for this message flow
 titleStatement
@@ -90,7 +87,7 @@ groupDefStatement: GROUP WS+  GROUP_NAME_DEF WS*
                                  COMMA_SYMBOL WS* GROUP_METHOD_DEF NEWLINE+;
 
 GROUP_NAME_DEF: NAME WS* EQ_SYMBOL STRINGX;
-GROUP_PATH_DEF: PATH WS* EQ_SYMBOL WS* URLSTRINGX;
+GROUP_PATH_DEF: PATH WS* EQ_SYMBOL WS* URLTEMPLATEX;
 GROUP_METHOD_DEF: METHOD WS* EQ_SYMBOL WS* STRINGX;
 
 messageflowStatementList: (messageflowStatement NEWLINE+)*;
@@ -102,12 +99,22 @@ messageflowStatement: routingStatement
                           | loopStatement
                           | refStatement
                           | variableStatement
-                          | commentStatement;
+                          | commentStatement
+                          | loadBalancerConfig;
 
 // Definition of a mediator statement
 mediatorStatement : mediatorStatementDef;
 
-mediatorStatementDef: MEDIATORDEFINITIONX ARGUMENTLISTDEF;
+mediatorStatementDef: MEDIATORDEFINITIONX ARGUMENTLISTDEF? logMediatorStatementDef?;
+
+
+//Definition of a log mediator statement
+
+logMediatorStatementDef: LPAREN LEVELDEF PARAMX*   (logPropertyStatementDef)* RPAREN;
+logPropertyStatementDef: COMMA_SYMBOL PROPERTYDEF LPAREN KEYDEF  VALUEDEF?
+                                           XPATHDEF?  (nameSpaceStatementDef)* JSONPATHDEF? RPAREN;
+nameSpaceStatementDef: COMMA_SYMBOL  NAMESPACEDEF LPAREN PREFIXDEF  URIDEF RPAREN;
+
 
 // Integration Flow constructor statement
 integrationFlowDef: INTEGRATIONFLOWX LPAREN STRINGX RPAREN;
@@ -128,8 +135,19 @@ routingStatement: routingStatementDef;
 routingStatementDef: IDENTIFIER WS+ ARROWX WS+ IDENTIFIER WS+
                   COLON WS+ COMMENTSTRINGX;
 
+// A variable statement
+variableStatement: variableDeclarationStatement
+                    | variableAssignmentStatement
+                    ;
+
 // Variable definition statement
-variableStatement: VARX WS+ TYPEDEFINITIONX WS+ IDENTIFIER WS* EQ_SYMBOL WS*  COMMENTSTRINGX;
+variableDeclarationStatement: VARX WS+ TYPEDEFINITIONX WS+ IDENTIFIER WS* EQ_SYMBOL WS*  COMMENTSTRINGX;
+
+// Variable assignment statement
+variableAssignmentStatement: VAR_IDENTIFIER WS* COMMENTSTRINGX;
+
+// Constant definition statement
+constStatement: CONSTX WS+ TYPEDEFINITIONX WS+ IDENTIFIER WS* EQ_SYMBOL WS*  COMMENTSTRINGX;
 
 // Message routing statement
 /*
@@ -237,9 +255,10 @@ healthCheckStatement
     : HEALTHCHECKLABEL (WHITESPACE | WS | NEWLINE)*
       LPAREN (WHITESPACE | WS | NEWLINE)*
         HEALTHCHECKTYPEDEF (WHITESPACE | WS | NEWLINE)*
-        OTHERHEALTHCHECKPARAMS+ (WHITESPACE | WS | NEWLINE)*
+        OTHERHEALTHCHECKPARAMS* (WHITESPACE | WS | NEWLINE)*
       RPAREN
     ;
+
 
 
 /* --- LEXER rules --- */
@@ -279,6 +298,14 @@ CONFIGSDEF: CONFIGS LPAREN (CONFIGPARAMS COMMA_SYMBOL)* (CONFIGPARAMS)* RPAREN;
 
 ARGUMENTLISTDEF: LPAREN (CONFIGPARAMS COMMA_SYMBOL)* (CONFIGPARAMS)* RPAREN;
 
+
+ VALUEDEF:  VALUE LPAREN CONFIGPARAMS RPAREN;
+ XPATHDEF:  XPATH LPAREN CONFIGPARAMS  RPAREN;
+ PREFIXDEF: PREFIX LPAREN CONFIGPARAMS RPAREN;
+ URIDEF:URI LPAREN CONFIGPARAMS RPAREN;
+ NAMESPACEDEF: NAMESPACE;
+ JSONPATHDEF:   JSONPATH  LPAREN  CONFIGPARAMS RPAREN;
+
 EXPRESSIONX: EXPRESSION;
 
 CONDITIONX: CONDITION;
@@ -297,6 +324,13 @@ OUTBOUNDENDPOINTX: OUTBOUNDENDPOINT;
 
 PROCESS_MESSAGEX: PROCESS_MESSAGE;
 
+LEVELDEF: LEVEL LPAREN STRINGX RPAREN;
+
+KEYDEF: KEY  LPAREN STRINGX RPAREN COMMA_SYMBOL;
+
+PROPERTYDEF: PROPERTY;
+LOGDEF: LOG;
+
 ASX: AS;
 
 COMMENTX: COMMENT;
@@ -307,7 +341,10 @@ STRINGX: STRING;
 
 URLSTRINGX: URLSTRING;
 
+URLTEMPLATEX: URLTEMPLATESTR;
+
 ARROWX: ARROW;
+
 
 STRINGTYPEX: STRINGTYPE;
 INTEGERTYPEX: INTEGERTYPE;
@@ -320,6 +357,7 @@ XMLTYPEX: XMLTYPE;
 JSONTYPEX: JSONTYPE;
 
 VARX: VAR;
+CONSTX: CONST;
 
 //LEXER: LB Keyword Rules.
 ALGORITHMNAMEDEF: NAME LPAREN ALGORITHMTYPEX RPAREN
@@ -343,8 +381,9 @@ HEALTHCHECKTYPEDEF: TYPE LPAREN HEALTHCHECKTYPEX RPAREN
                   ;
 
 OTHERHEALTHCHECKPARAMS: (WHITESPACE | WS | NEWLINE)* COMMA_SYMBOL (WHITESPACE | WS | NEWLINE)*
-                        (REQUESTTIMEOUT | UNHEALTHYRETRIES | HEALTHYRETRIES | HEALTHYCHECKINTERVAL) LPAREN (HEALTHCHECKRETRIESCOUNTX | LBTIMESTRINGX) RPAREN
-                     ;
+                        (REQUESTTIMEOUT | UNHEALTHYRETRIES | HEALTHYRETRIES | HEALTHYCHECKINTERVAL)
+                           LPAREN (HEALTHCHECKRETRIESCOUNTX | LBTIMESTRINGX) RPAREN
+                      ;
 
 
 // LEXER: Keywords
@@ -363,7 +402,6 @@ WITH : W I T H ;
 NAME: N A M E;
 PATH: P A T H;
 METHOD: M E T H O D;
-
 
 // LEXER: LB Keywords
 LOADBALANCERLABEL: L O A D B A L A N C E R;
@@ -389,9 +427,6 @@ HEALTHYCHECKINTERVAL: H E A L T H Y C H E C K I N T E R V A L;
 
 LBTIMESTRINGX: LBTIMESTRING;
 HEALTHCHECKRETRIESCOUNTX: HEALTHCHECKRETRIESCOUNT;
-
-
-
 
 
 // LEXER: symbol rules
@@ -432,12 +467,17 @@ WS
 IDENTIFIER
     : ('$')? ('a'..'z' | 'A'..'Z' ) ( 'a'..'z' | 'A'..'Z' | DIGIT | '_')+ ;
 
+VAR_IDENTIFIER
+    : ('$') ('a'..'z' | 'A'..'Z' ) ( 'a'..'z' | 'A'..'Z' | DIGIT | '_')+ WS* ('=');
+
 ANY_STRING: ('$')? ('a'..'z' | 'A'..'Z' | DIGIT | '_' | '\\' | '/' | ':')+ ;
 
 NUMBER
     : ( '0' | '1'..'9' DIGIT*) ('.' DIGIT+ )? ;
 
 URL: ([a-zA-Z/\?&] | COLON | [0-9])+;
+
+URLTEMPLATE: ([a-zA-Z/\?&] | COLON | [0-9] | '{' | '}' | '.' | '*' | '#' )+;
 
 CONTINUATION
     : CONTINUATION_SYMBOL ~[\r\n]* NEWLINE -> skip ;
@@ -446,21 +486,13 @@ WHITESPACE
     : [ \t]+ -> skip ;
 
 
-
-
-
-
-
 // LEXER: fragments to evaluate only within statements
 
 //fragment ROUTINGSTATEMENT: IDENTIFIER WS+ ARROW WS+ IDENTIFIER WS+ COMMENTX
 //                           WS+ STRINGX;
-
-
-
-
 fragment STRING: DOUBLEQUOTES IDENTIFIER DOUBLEQUOTES;
 fragment URLSTRING: DOUBLEQUOTES URL DOUBLEQUOTES;
+fragment URLTEMPLATESTR: DOUBLEQUOTES URLTEMPLATE DOUBLEQUOTES;
 fragment COMMENTSTRING: DOUBLEQUOTES COMMENTPARAMS DOUBLEQUOTES;
 fragment EXPRESSION: LPAREN CONFIGPARAMS RPAREN;
 fragment STARTUML: '@startuml';
@@ -496,7 +528,6 @@ fragment CONTEXT: C O N T E X T;
 fragment TIMEOUT: T I M E O U T;
 fragment HOST: H O S T;
 fragment CONFIGS: C O N F I G S;
-
 fragment CONDITION: C O N D I T I O N;
 fragment SOURCE: S O U R C E;
 fragment PATTERN: P A T T E R N;
@@ -519,6 +550,17 @@ fragment SHORTTYPE: S H O R T;
 fragment XMLTYPE: X M L;
 fragment JSONTYPE: J S O N;
 fragment VAR: V A R;
+fragment CONST: C O N S T;
+fragment LEVEL: L E V E L;
+fragment KEY: K E Y;
+fragment VALUE: V A L U E;
+fragment PROPERTY: P R O P E R T Y;
+fragment EXPRESSIOND: E X P R E S S I O N;
+fragment XPATH: X P A T H;
+fragment JSONPATH: J S O N P A T H;
+fragment NAMESPACE: N A M E S P A C E;
+fragment PREFIX: P R E F I X;
+fragment URI: U R I;
 
 fragment TYPEDEFINITION
     : INTEGERTYPE
@@ -533,15 +575,13 @@ fragment TYPEDEFINITION
     ;
 
 // LB related.
-fragment ALGORITHMTYPE: ('ROUND_ROBIN' | 'LEAST_CONNECTIONS' | 'LEAST_RESPONSE_TIME');
-fragment PERSISTENCETYPE: ('NO_PERSISTENCE' | 'APPLICATION_COOKIE' | 'LB_COOKIE');
+fragment ALGORITHMTYPE: ('ROUND_ROBIN' | 'STRICT_IP_HASHING' | 'LEAST_RESPONSE_TIME' | 'RANDOM');
+fragment PERSISTENCETYPE: ('NO_PERSISTENCE' | 'APPLICATION_COOKIE' | 'LB_COOKIE' | 'CLIENT_IP_HASHING');
 fragment SSLSUPPORTTYPE: ('NO_SSL' | 'SSL_OFFLOAD' | 'END_TO_END');
-fragment HEALTHCHECKTYPE: ('PASSIVE');
+fragment HEALTHCHECKTYPE: ('PASSIVE' | 'NO_HEALTH_CHECK' | 'DEFAULT_HEALTH_CHECK');
+//TODO: Fix time limits.
 fragment LBTIMESTRING: (DIGIT)+ ('h' | 'm' | 's' | 'ms');
 fragment HEALTHCHECKRETRIESCOUNT: (('1')('time')|('2'..'9' | '10') ('times'));
-
-
-
 
 
 // case insensitive lexer matching
